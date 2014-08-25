@@ -53,11 +53,12 @@ def query_timeslots(where):
     slots = list(conn.execute(t_timeslots.select().where(where)))
     for slot in slots:
         where = t_assignments.c.timeslot == slot[t_timeslots.c.id]
-        boats = list(conn.execute(t_boats.select().where(where)))
+        boats = list(conn.execute(t_assignments.join(t_boats)
+                                  .select(use_labels=True).where(where)))
         names = [boat[t_boats.c.name] for boat in boats]
         # TODO: assign bookings to boats at creation time rather than query!
         # TODO: use a tree instead of re-sorting?
-        sizes = sorted(boat[t_boats.c.size] for boat in boats)
+        sizes = sorted(boat[t_boats.c.capacity] for boat in boats)
         where = t_bookings.c.timeslot == slot[t_timeslots.c.id]
         bookings = list(conn.execute(t_bookings.select().where(where)))
         for booking in bookings:
@@ -77,8 +78,8 @@ def query_timeslots(where):
                 bisect.insort(sizes, size)
         dur = slot[t_timeslots.c.end] - slot[t_timeslots.c.start]
         dur = dur.total_seconds() * 60
-        customer_count = sum(bookings[t_bookings.c.size] for booking in bookings)
-        availability = sum(sizes)
+        customer_count = sum(booking[t_bookings.c.size] for booking in bookings)
+        availability = sizes[-1]
         results.append({
             'id': slot[t_timeslots.c.id],
             'start_time': slot[t_timeslots.c.start].timestamp(),
@@ -88,32 +89,6 @@ def query_timeslots(where):
             'boats': [row[t_boats.c.id] for row in boats]})
     return results
     
-    q1 = (select([t_timeslots,
-                  func.sum(t_bookings.c.size).label('size')], use_labels=True)
-          .select_from(t_timeslots.outerjoin(t_bookings))
-          .group_by(t_timeslots.c.id))
-    q2 = (q1.outerjoin(t_assignments).outerjoin(t_boats)
-          .select(use_labels=True)
-          .where(where)
-          .order_by(t_timeslots.c.id))
-    slots = itertools.groupby(conn.execute(q2),
-                              operator.itemgetter(t_timeslots.c.id))
-    results = []
-    for k, g in slots:
-        g = list(g)
-        dur = 60 * (g[0][t_timeslots.c.end] - g[0][t_timeslots.c.start]).total_seconds()
-        boats = [row for row in g if row[t_boats.c.id] is not None]
-        capacity = sum(row[t_boats.c.capacity] for row in boats)
-        booked = boats[0]['size'] if boats else 0
-        results.append({
-            'id': g[0][t_timeslots.c.id],
-            'start_time': g[0][t_timeslots.c.start].timestamp(),
-            'duration': dur,
-            'availability': capacity - booked,
-            'customer_count': booked,
-            'boats': [row[t_boats.c.id] for row in boats]})
-    return results
-
 class JsonResponse(Response):
     default_mimetype = 'application/json'
 
@@ -177,7 +152,7 @@ def assignment():
 def booking():
     args = getargs(request)
     timeslot = int(args['timeslot_id'])
-    boat = int(args['size'])
+    size = int(args['size'])
     result = conn.execute(t_bookings.insert(), timeslot=timeslot, size=size)
     result = {'id': result.inserted_primary_key[0],
               'timeslot_id': timeslot,
