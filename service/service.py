@@ -177,6 +177,8 @@ def timeslot():
 @app.route('/api/timeslots', methods=['GET', 'POST'])
 def timeslots():
     args = getargs(request)
+    if request.method=='POST' and 'start_time' in args:
+        return timeslot()
     date = datetime.datetime.strptime(args['date'], '%Y-%m-%d').date()
     return dumps([ts.info() for ts in Timeslot.by_date(date)])
 
@@ -191,6 +193,9 @@ def boat():
 
 @app.route('/api/boats', methods=['GET', 'POST'])
 def boats():
+    args = getargs(request)
+    if request.method == 'POST' and args:
+        return boat()
     return dumps([boat.info() for boat in Boat.by_all()])
 
 @app.route('/api/assignment', methods=['GET', 'POST'])
@@ -218,4 +223,4 @@ def booking():
             'size': size}})
     
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=3000)
