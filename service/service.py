@@ -10,6 +10,7 @@ import threading
 
 from flask import Flask, request, Response
 from flask.json import dumps, jsonify
+from flask.ext.cors import CORS
 
 from keybisect import *
 
@@ -50,7 +51,7 @@ class Timeslot:
         return {
             'id': id(self),
             'start_time': self.start.timestamp(),
-            'duration': (self.end - self.start).total_seconds() * 60,
+            'duration': (self.end - self.start).total_seconds() / 60,
             'availability': max0(b[0] for b in self.boats),
             'customer_count': sum(b[2] for b in self.boats),
             'boats': [b[1].name for b in self.boats]
@@ -163,54 +164,59 @@ class JsonResponse(Response):
 
 app = Flask(__name__)
 app.response_class = JsonResponse
+cors = CORS(app, resources=r'/api/*', headers='Content-Type')
 
-@app.route('/api/timeslot', methods=['GET', 'POST'])
+@app.route('/api/timeslots', methods=['POST', 'OPTIONS'])
 def timeslot():
     args = getargs(request)
-    start_time = int(args['start_time'])
-    duration = int(args['duration'])
+    start_time = int(args['timeslot[start_time]'])
+    duration = int(args['timeslot[duration]'])
+    start_time, duration
     start = datetime.datetime.fromtimestamp(start_time)
     end = start + datetime.timedelta(minutes=duration)
     ts = Timeslot(start, end)
     return dumps(ts.info())
 
-@app.route('/api/timeslots', methods=['GET', 'POST'])
+@app.route('/api/timeslots', methods=['GET'])
 def timeslots():
     args = getargs(request)
-    if request.method=='POST' and 'start_time' in args:
-        return timeslot()
     date = datetime.datetime.strptime(args['date'], '%Y-%m-%d').date()
     return dumps([ts.info() for ts in Timeslot.by_date(date)])
 
-# TODO: API spec says boats, not boat... typo?
-@app.route('/api/boat', methods=['GET', 'POST'])
+@app.route('/api/boats', methods=['POST', 'OPTIONS'])
 def boat():
     args = getargs(request)
-    capacity = int(args['capacity'])
-    name = args['name']
+    capacity = int(args['boat[capacity]'])
+    name = args['boat[name]']
     boat = Boat(capacity, name)
     return dumps(boat.info())
 
-@app.route('/api/boats', methods=['GET', 'POST'])
+@app.route('/api/boats', methods=['GET'])
 def boats():
     args = getargs(request)
-    if request.method == 'POST' and args:
-        return boat()
     return dumps([boat.info() for boat in Boat.by_all()])
 
-@app.route('/api/assignment', methods=['GET', 'POST'])
+@app.route('/api/assignments', methods=['POST', 'OPTIONS'])
 def assignment():
     args = getargs(request)
-    timeslot = Timeslot.by_id(args['timeslot_id'])
-    boat = Boat.by_id(args['boat_id'])
+    timeslot = Timeslot.by_id(args['assignment[timeslot_id]'])
+    boat = Boat.by_id(args['assignment[boat_id]'])
     timeslot.assign(boat)
     return dumps({})
 
-@app.route('/api/booking', methods=['GET', 'POST'])
+@app.route('/api/assignments', methods=['GET'])
+def assignments():
+    args = getargs(request)
+    timeslot = Timeslot.by_id(args['assignment[timeslot_id]'])
+    boat = Boat.by_id(args['assignment[boat_id]'])
+    timeslot.assign(boat)
+    return dumps({})
+
+@app.route('/api/bookings', methods=['POST', 'OPTIONS'])
 def booking():
     args = getargs(request)
-    timeslot = Timeslot.by_id(args['timeslot_id'])
-    size = int(args['size'])
+    timeslot = Timeslot.by_id(args['booking[timeslot_id]'])
+    size = int(args['booking[size]'])
     try:
         booking = timeslot.book(size)
         return dumps({'id': id(booking),
